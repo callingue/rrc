@@ -128,3 +128,103 @@ impl State {
 }
 
 // TODO: is_crashed() for Service struct
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use State::*;
+
+    const ALL: [State; 5] = [Stopped, Started, Stopping, Starting, Inactive];
+
+    /// Every transition the state machine is meant to allow. The test below walks the
+    /// whole 5x5 matrix against this table, so a change in `transition` that is not
+    /// reflected here fails the build instead of silently widening what is legal.
+    const ALLOWED: [(State, State); 12] = [
+        // start() called
+        (Stopped, Starting),
+        (Inactive, Starting),
+        // start() resolves
+        (Starting, Started),
+        (Starting, Inactive),
+        (Starting, Stopped),
+        // stop() called
+        (Started, Stopping),
+        (Inactive, Stopping),
+        // stop() resolves
+        (Stopping, Stopped),
+        (Stopping, Started),
+        (Stopping, Inactive),
+        // the process died on its own, no stop() ever ran
+        (Started, Stopped),
+        (Inactive, Stopped),
+    ];
+
+    /// Applies each step in turn, panicking with the rejected pair if one is refused.
+    fn walk(start: State, path: &[State]) -> State {
+        path.iter().fold(start, |current, &next| {
+            current
+                .transition(next)
+                .unwrap_or_else(|e| panic!("unexpected rejection: {e}"))
+        })
+    }
+
+    #[test]
+    fn matrix_matches_the_table() {
+        for from in ALL {
+            for to in ALL {
+                let expected = ALLOWED.contains(&(from, to));
+                let actual = from.transition(to).is_ok();
+                assert_eq!(actual, expected, "{from:?} -> {to:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn transition_yields_the_target_state() {
+        assert_eq!(Stopped.transition(Starting).unwrap(), Starting);
+    }
+
+    #[test]
+    fn no_state_transitions_to_itself() {
+        for state in ALL {
+            assert!(state.transition(state).is_err(), "{state:?} -> itself");
+        }
+    }
+
+    #[test]
+    fn normal_lifecycle_is_allowed() {
+        assert_eq!(walk(Stopped, &[Starting, Started, Stopping, Stopped]), Stopped);
+    }
+
+    #[test]
+    fn warm_up_lifecycle_is_allowed() {
+        // Starting -> Inactive means alive but not ready yet; it may then finish coming up.
+        assert_eq!(walk(Stopped, &[Starting, Inactive, Starting, Started]), Started);
+    }
+
+    #[test]
+    fn crash_and_aborted_stop_are_allowed() {
+        assert_eq!(walk(Started, &[Stopped]), Stopped); // died on its own
+        assert_eq!(walk(Started, &[Stopping, Started]), Started); // stop aborted
+    }
+
+    #[test]
+    fn starting_cannot_be_reached_from_started_or_stopping() {
+        // A running service must go through stop() before it can start again.
+        assert!(Started.transition(Starting).is_err());
+        assert!(Stopping.transition(Starting).is_err());
+    }
+
+    #[test]
+    fn rejection_names_both_states() {
+        let err = Stopped.transition(Started).unwrap_err().to_string();
+        assert!(err.contains("Stopped") && err.contains("Started"), "{err}");
+    }
+
+    #[test]
+    fn default_status_is_stopped_without_flags() {
+        let status = Status::default();
+        assert_eq!(status.state, Stopped);
+        assert!(status.flags.is_empty());
+    }
+}
