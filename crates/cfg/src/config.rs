@@ -97,6 +97,25 @@ mod tests {
     }
 
     #[test]
+    fn unknown_field_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let text = format!("{}stpo = [\"/bin/echo\"]\n", unit_toml("typo"));
+        fs::write(dir.path().join("typo.service"), text).unwrap();
+
+        let err = load_units(dir.path())
+            .err()
+            .expect("expected the misspelled key to be rejected")
+            .to_string();
+        assert!(err.contains("typo.service"), "{err}");
+        // The root cause travels in the error source, not in the top-level context.
+        let cause = load_units(dir.path())
+            .err()
+            .map(|e| format!("{e:#}"))
+            .unwrap_or_default();
+        assert!(cause.contains("unknown field"), "{cause}");
+    }
+
+    #[test]
     fn distinct_service_names_load() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("a.service"), unit_toml("a")).unwrap();

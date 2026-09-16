@@ -66,12 +66,14 @@ pub enum DepKind {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Dependency {
     pub kind: DepKind,
     pub target: ServiceName,
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Service {
     pub name: ServiceName,
     pub desc: String,
