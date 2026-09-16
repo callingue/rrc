@@ -24,7 +24,9 @@ fn find_service_files(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
         let entry = entry?;
         let path = entry.path();
 
-        if path.is_dir() {
+        // `file_type()` does not follow symlinks, so a link pointing at an ancestor
+        // directory cannot send us into infinite recursion.
+        if entry.file_type()?.is_dir() {
             result.extend(find_service_files(&path)?);
         } else if path.extension().and_then(|e| e.to_str()) == Some("service") {
             result.push(path);
