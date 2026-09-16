@@ -141,6 +141,8 @@ dependencies = [
  "anyhow",
  "rrc-core",
  "serde",
+ "tempfile",
+ "thiserror",
  "toml",
 ]
 
