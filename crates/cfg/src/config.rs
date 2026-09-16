@@ -1,15 +1,30 @@
-use std::{fs, path::{Path, PathBuf}};
+use std::{collections::HashMap, fs, path::{Path, PathBuf}};
 
-use anyhow::Ok;
+use anyhow::{bail, Ok};
+use rrc_core::service::ServiceName;
 
 use crate::types::unit::Unit;
 
 pub fn load_units(dir: &Path) -> anyhow::Result<Vec<Unit>> {
     let service_files = find_service_files(dir)?;
 
-    let mut units = vec![];
+    let mut units = Vec::with_capacity(service_files.len());
+    let mut seen: HashMap<ServiceName, PathBuf> = HashMap::new();
+
     for service_file in &service_files {
         let parsed_unit = parse_service_file(service_file)?;
+
+        // Two files claiming the same name would silently collapse into one entry
+        // once units get keyed by name. Reject it here, while both paths are known.
+        if let Some(first) = seen.insert(parsed_unit.service.name.clone(), service_file.clone()) {
+            bail!(
+                "duplicate service name `{}`: {} and {}",
+                parsed_unit.service.name,
+                first.display(),
+                service_file.display()
+            );
+        }
+
         units.push(parsed_unit);
     }
 
@@ -40,4 +55,38 @@ fn parse_service_file(file_path: &Path) -> anyhow::Result<Unit> {
     let content = fs::read_to_string(file_path)?;
     let unit = toml::from_str(&content)?;
     Ok(unit)
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn unit_toml(name: &str) -> String {
+        format!(
+            "[service]\nname = \"{name}\"\ndesc = \"\"\nprovides = []\ndeps = []\n\
+             runlevels = []\n\n[exec]\nkind = \"oneshot\"\nstart = [\"/bin/echo\"]\n"
+        )
+    }
+
+    #[test]
+    fn duplicate_service_names_are_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("one.service"), unit_toml("dup")).unwrap();
+        fs::write(dir.path().join("two.service"), unit_toml("dup")).unwrap();
+
+        // `.err()` rather than `unwrap_err()`, which would require `Unit: Debug`.
+        let err = load_units(dir.path())
+            .err()
+            .expect("expected the duplicate name to be rejected")
+            .to_string();
+        assert!(err.contains("duplicate service name `dup`"), "{err}");
+    }
+
+    #[test]
+    fn distinct_service_names_load() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a.service"), unit_toml("a")).unwrap();
+        fs::write(dir.path().join("b.service"), unit_toml("b")).unwrap();
+
+        assert_eq!(load_units(dir.path()).unwrap().len(), 2);
+    }
 }
