@@ -8,9 +8,11 @@ pub struct ServiceName(String);
 #[error("invalid service name: {0}")]
 pub struct ServiceNameError(String);
 
-// Size of the kernel's `task_struct.comm` buffer (`include/linux/sched.h`).
-const TASK_COMM_LEN: usize = 16;
-const MAX_SERVICE_NAME_LEN: usize = TASK_COMM_LEN - 1;
+// Long enough for real-world names such as `systemd-resolved`, short enough to keep
+// runtime paths like `/run/rrc/<name>` manageable. Deliberately unrelated to the
+// kernel's 15-character `task_struct.comm` limit: that one caps thread names, which
+// is a separate concern from what a service may be called.
+const MAX_SERVICE_NAME_LEN: usize = 64;
 
 impl ServiceName {
     pub fn new(s: impl Into<String>) -> Result<Self, ServiceNameError> {
@@ -89,9 +91,18 @@ mod tests {
     }
 
     #[test]
-    fn service_name_len_more_than_fifteen() {
-        let s = "letsgorustytogether";
-        assert_eq!(format!("invalid service name: {}", s), ServiceName::new(s).unwrap_err().to_string());
+    fn service_name_longer_than_limit_is_rejected() {
+        let s = "a".repeat(MAX_SERVICE_NAME_LEN + 1);
+        assert_eq!(
+            format!("invalid service name: {}", s),
+            ServiceName::new(s.as_str()).unwrap_err().to_string()
+        );
+    }
+
+    #[test]
+    fn service_name_at_limit_is_accepted() {
+        let s = "a".repeat(MAX_SERVICE_NAME_LEN);
+        assert!(ServiceName::new(s.as_str()).is_ok());
     }
 
     #[test]
