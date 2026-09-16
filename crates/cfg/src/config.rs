@@ -4,7 +4,7 @@ use anyhow::Ok;
 
 use crate::types::unit::Unit;
 
-fn load_units(dir: &Path) -> anyhow::Result<Vec<Unit>> {
+pub fn load_units(dir: &Path) -> anyhow::Result<Vec<Unit>> {
     let service_files = find_service_files(dir)?;
 
     let mut units = vec![];
