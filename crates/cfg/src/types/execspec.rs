@@ -1,23 +1,29 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecSpec {
-    // command to strart service
+    #[serde(default)]
+    pub kind: Kind,
     pub start: Argv,
-    // command to stop service
     pub stop: Option<Argv>,
-    // command to reload service
     pub reload: Option<Argv>,
-
-    // todo: cpu/memory/io/network limits
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    /// Runs to completion; exit code 0 means success.
+    Oneshot,
+    /// Stays in the foreground as our child.
+    #[default]
+    Simple,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Argv(Vec<String>);
 
-impl From<String> for Argv {
-    fn from(v: String) -> Self {
-        let args = v.split_whitespace().map(String::from).collect();
-        Argv(args)
+impl Argv {
+    pub fn split(&self) -> Option<(&String, &[String])> {
+        self.0.split_first()
     }
 }

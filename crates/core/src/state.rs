@@ -1,9 +1,10 @@
 use thiserror::Error;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub enum State {
-	// The service has to be in one only at all times
+    // The service has to be in one only at all times
     /// Not running. The default, resting state — no process, no dependents waiting on it.
+    #[default]
     Stopped,
     /// Process is running and considered ready to do its job.
     Started,
@@ -20,6 +21,7 @@ pub enum State {
 }
 
 bitflags::bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
     pub struct Flags: u8 {
         /// The last start/stop attempt failed, or a hard dependency failed to come up.
         ///
@@ -44,6 +46,13 @@ bitflags::bitflags! {
         const CRASHED      = 1 << 3;
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Status {
+    pub state: State,
+    pub flags: Flags,
+}
+
 pub enum Origin {
     // A service has exactly one origin at a time, set on its most recent start
     /// Service is a member of the runlevel that's currently being brought up —
@@ -52,7 +61,7 @@ pub enum Origin {
     /// Service was started automatically in response to a hardware/device event
     /// (e.g. a udev/devd handler bringing up a USB device or network interface),
     /// rather than by a runlevel or a user.
-    /// 
+    ///
     /// This is not part of any runlevel's static list, so on a runlevel switch
     /// it must be tracked separately and re-added if the switch would otherwise
     /// stop it.
@@ -82,7 +91,6 @@ pub struct InvalidTransition {
 }
 
 impl State {
-
     pub fn transition(self, to: State) -> Result<State, InvalidTransition> {
         use State::*;
 

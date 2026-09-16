@@ -134,6 +134,10 @@ dependencies = [
 [[package]]
 name = "rrc-sup"
 version = "0.1.0"
+dependencies = [
+ "rrc-cfg",
+ "rrc-core",
+]
 
 [[package]]
 name = "rustix"
