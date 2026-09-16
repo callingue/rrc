@@ -39,6 +39,12 @@ impl From<ServiceName> for String {
     }
 }
 
+impl std::fmt::Display for ServiceName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub enum DepKind {
     /// Hard requirement: pull the target in, start it first, fail if it fails.
