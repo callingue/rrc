@@ -1,6 +1,10 @@
-use std::{collections::HashMap, fs, path::{Path, PathBuf}};
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+};
 
-use anyhow::{bail, Context, Ok};
+use anyhow::{Context, Ok, bail};
 use rrc_core::service::ServiceName;
 
 use crate::types::unit::Unit;
@@ -55,10 +59,11 @@ fn find_service_files(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
 fn parse_service_file(file_path: &Path) -> anyhow::Result<Unit> {
     let content = fs::read_to_string(file_path)
         .with_context(|| format!("reading {}", file_path.display()))?;
-    let unit = toml::from_str(&content)
-        .with_context(|| format!("parsing {}", file_path.display()))?;
+    let unit =
+        toml::from_str(&content).with_context(|| format!("parsing {}", file_path.display()))?;
     Ok(unit)
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

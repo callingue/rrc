@@ -193,13 +193,19 @@ mod tests {
 
     #[test]
     fn normal_lifecycle_is_allowed() {
-        assert_eq!(walk(Stopped, &[Starting, Started, Stopping, Stopped]), Stopped);
+        assert_eq!(
+            walk(Stopped, &[Starting, Started, Stopping, Stopped]),
+            Stopped
+        );
     }
 
     #[test]
     fn warm_up_lifecycle_is_allowed() {
         // Starting -> Inactive means alive but not ready yet; it may then finish coming up.
-        assert_eq!(walk(Stopped, &[Starting, Inactive, Starting, Started]), Started);
+        assert_eq!(
+            walk(Stopped, &[Starting, Inactive, Starting, Started]),
+            Started
+        );
     }
 
     #[test]

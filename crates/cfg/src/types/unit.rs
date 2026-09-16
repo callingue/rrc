@@ -1,6 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::types::execspec::ExecSpec;
-
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

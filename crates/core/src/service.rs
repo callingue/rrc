@@ -17,8 +17,10 @@ const MAX_SERVICE_NAME_LEN: usize = 64;
 impl ServiceName {
     pub fn new(s: impl Into<String>) -> Result<Self, ServiceNameError> {
         let s = s.into();
-        let ok = !s.is_empty() && s.len() <= MAX_SERVICE_NAME_LEN
-            && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'));
+        let ok = !s.is_empty()
+            && s.len() <= MAX_SERVICE_NAME_LEN
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'));
         if ok {
             Ok(Self(s))
         } else {
@@ -78,7 +80,7 @@ pub struct Service {
     pub name: ServiceName,
     pub desc: String,
     pub provides: Vec<ServiceName>,
-    pub deps: Vec<Dependency>, 
+    pub deps: Vec<Dependency>,
     pub runlevels: Vec<String>,
 }
 
@@ -110,6 +112,9 @@ mod tests {
     #[test]
     fn service_name_contains_invalid_character() {
         let s = "lets_g#_rusty";
-         assert_eq!(format!("invalid service name: {}", s), ServiceName::new(s).unwrap_err().to_string());
+        assert_eq!(
+            format!("invalid service name: {}", s),
+            ServiceName::new(s).unwrap_err().to_string()
+        );
     }
 }

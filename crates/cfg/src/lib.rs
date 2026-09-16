@@ -1,3 +1,3 @@
 #![allow(dead_code)]
-pub mod types;
 pub mod config;
+pub mod types;

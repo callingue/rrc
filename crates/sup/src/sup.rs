@@ -9,7 +9,5 @@ pub struct Supervisor {
 }
 
 impl Supervisor {
-    pub fn new() {
-        
-    }
+    pub fn new() {}
 }
