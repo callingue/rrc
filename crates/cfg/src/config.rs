@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs, path::{Path, PathBuf}};
 
-use anyhow::{bail, Ok};
+use anyhow::{bail, Context, Ok};
 use rrc_core::service::ServiceName;
 
 use crate::types::unit::Unit;
@@ -33,7 +33,8 @@ pub fn load_units(dir: &Path) -> anyhow::Result<Vec<Unit>> {
 
 fn find_service_files(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
     let mut result = Vec::new();
-    let entries = fs::read_dir(dir)?;
+    let entries =
+        fs::read_dir(dir).with_context(|| format!("reading directory {}", dir.display()))?;
 
     for entry in entries {
         let entry = entry?;
@@ -52,8 +53,10 @@ fn find_service_files(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
 }
 
 fn parse_service_file(file_path: &Path) -> anyhow::Result<Unit> {
-    let content = fs::read_to_string(file_path)?;
-    let unit = toml::from_str(&content)?;
+    let content = fs::read_to_string(file_path)
+        .with_context(|| format!("reading {}", file_path.display()))?;
+    let unit = toml::from_str(&content)
+        .with_context(|| format!("parsing {}", file_path.display()))?;
     Ok(unit)
 }
 #[cfg(test)]
@@ -79,6 +82,18 @@ mod tests {
             .expect("expected the duplicate name to be rejected")
             .to_string();
         assert!(err.contains("duplicate service name `dup`"), "{err}");
+    }
+
+    #[test]
+    fn parse_error_names_the_offending_file() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("broken.service"), "this is not toml").unwrap();
+
+        let err = load_units(dir.path())
+            .err()
+            .expect("expected a parse error")
+            .to_string();
+        assert!(err.contains("broken.service"), "{err}");
     }
 
     #[test]
