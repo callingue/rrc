@@ -9,5 +9,11 @@ pub struct Supervisor {
 }
 
 impl Supervisor {
-    pub fn new() {}
+    pub fn new(execs: HashMap<ServiceName, ExecSpec>) -> Self {
+        let statuses = execs
+            .keys()
+            .map(|name| (name.clone(), Status::default()))
+            .collect();
+        Self { execs, statuses }
+    }
 }
