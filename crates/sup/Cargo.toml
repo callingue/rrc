@@ -8,3 +8,6 @@ anyhow = "1.0.104"
 rrc-cfg = { path = "../cfg" }
 rrc-core = { path = "../core" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "signal", "sync"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
