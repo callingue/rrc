@@ -1,0 +1,6 @@
+# Pins formatting explicitly rather than relying on rustfmt's defaults, which can
+# shift between releases. `cargo fmt` takes the edition from Cargo.toml, but a
+# bare `rustfmt` (editor on save, for instance) does not — so it is stated here.
+edition = "2024"
+max_width = 100
+tab_spaces = 4
