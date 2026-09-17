@@ -1,0 +1,16 @@
+# Pins the compiler, so a Rust release cannot turn CI red without a diff.
+#
+# CI runs `clippy -- -D warnings`. A lint added in a new stable compiler would
+# fail an unchanged tree — on main and every open branch at once — because
+# `dtolnay/rust-toolchain@stable` resolves at run time. rustup reads this file
+# and it outranks the default toolchain, so one line here governs CI, local
+# builds and any future container build alike.
+#
+# Bump deliberately, one release at a time, in the same commit as the
+# `dtolnay/rust-toolchain@<version>` ref in .github/workflows/ci.yml: that is
+# where new lints get triaged, instead of as a surprise on main. A pin nobody
+# maintains is how a project ends up years behind and unable to take a fix.
+[toolchain]
+channel = "1.97.1"
+components = ["clippy", "rustfmt"]
+profile = "minimal"
