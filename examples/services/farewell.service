@@ -1,0 +1,10 @@
+[service]
+name = "farewell"
+desc = "prints a farewell"
+provides = []
+deps = []
+runlevels = []
+
+[exec]
+kind = "oneshot"
+start = ["/bin/echo", "bye from farewell"]
