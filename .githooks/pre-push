@@ -1,0 +1,26 @@
+#!/bin/sh
+#
+# Runs what CI gates on, before the code leaves this machine — so a red run is
+# caught here instead of on GitHub.
+#
+# Enable once: ./scripts/setup-hooks.sh
+# Bypass once: git push --no-verify
+
+if ! command -v cargo >/dev/null 2>&1; then
+    echo "pre-push: cargo not found, skipping checks" >&2
+    exit 0
+fi
+
+echo "pre-push: cargo clippy --workspace --all-targets -- -D warnings"
+if ! cargo clippy --workspace --all-targets -- -D warnings; then
+    echo >&2
+    echo "Clippy failed. Fix the warnings above before pushing." >&2
+    exit 1
+fi
+
+echo "pre-push: cargo test --workspace"
+if ! cargo test --workspace; then
+    echo >&2
+    echo "Tests failed. Fix them before pushing." >&2
+    exit 1
+fi

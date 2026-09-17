@@ -1,0 +1,24 @@
+#!/bin/sh
+#
+# Formatting only, so committing stays instant. The heavier checks run on push
+# (.githooks/pre-push). CI is the real gate; this is just fast local feedback.
+#
+# Enable once: ./scripts/setup-hooks.sh
+# Bypass once: git commit --no-verify
+
+# Nothing to check unless Rust files are staged.
+if ! git diff --cached --name-only --diff-filter=ACM | grep -q '\.rs$'; then
+    exit 0
+fi
+
+if ! command -v cargo >/dev/null 2>&1; then
+    echo "pre-commit: cargo not found, skipping fmt check" >&2
+    exit 0
+fi
+
+echo "pre-commit: cargo fmt --all --check"
+if ! cargo fmt --all --check; then
+    echo >&2
+    echo "Formatting check failed. Run 'cargo fmt --all', re-stage, and commit again." >&2
+    exit 1
+fi
