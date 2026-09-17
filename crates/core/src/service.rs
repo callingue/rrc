@@ -8,11 +8,9 @@ pub struct ServiceName(String);
 #[error("invalid service name: {0}")]
 pub struct ServiceNameError(String);
 
-// Long enough for real-world names such as `systemd-resolved`, short enough to keep
-// runtime paths like `/run/rrc/<name>` manageable. Deliberately unrelated to the
-// kernel's 15-character `task_struct.comm` limit: that one caps thread names, which
-// is a separate concern from what a service may be called.
-const MAX_SERVICE_NAME_LEN: usize = 64;
+// Size of the kernel's `task_struct.comm` buffer (`include/linux/sched.h`).
+const TASK_COMM_LEN: usize = 16;
+const MAX_SERVICE_NAME_LEN: usize = TASK_COMM_LEN - 1;
 
 impl ServiceName {
     pub fn new(s: impl Into<String>) -> Result<Self, ServiceNameError> {
