@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 mod sup;
 
 use std::path::PathBuf;
@@ -11,7 +10,10 @@ async fn main() -> anyhow::Result<()> {
         .into();
 
     let mut supervisor = sup::Supervisor::from_dir(&dir)?;
+
     supervisor.start_all().await;
+    supervisor.watch().await;
+    supervisor.stop_all().await;
 
     Ok(())
 }

@@ -9,6 +9,7 @@ use rrc_core::{
     service::ServiceName,
     state::{Flags, State, Status},
 };
+use rustix::process::{Pid, Signal, kill_process};
 use tokio::{process::Command, sync::mpsc};
 
 /// How long a `Simple` service must stay alive before we call it started.
@@ -17,6 +18,17 @@ use tokio::{process::Command, sync::mpsc};
 /// process that dies immediately, which is what a bad config or a missing file
 /// looks like. Anything slower to fail still reports as started.
 const READINESS_PROBE: Duration = Duration::from_millis(100);
+
+/// How long a service gets to exit after `SIGTERM` before it is killed outright.
+///
+/// Together with `KILL_GRACE` this belongs in the unit file, next to the command
+/// it applies to — a database needs longer to flush than an echo server. Constants
+/// for now so that stopping works at all.
+const STOP_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How long to wait for a process to disappear after `SIGKILL`, which it cannot
+/// catch. Only a process stuck in the kernel (uninterruptible I/O) outlives this.
+const KILL_GRACE: Duration = Duration::from_secs(2);
 
 /// Something that happened to a service's process, reported by its watcher task.
 #[derive(Debug)]
@@ -36,6 +48,10 @@ pub struct Supervisor {
     /// Cloned for each watcher task; kept here so new ones can be spawned later.
     tx: mpsc::UnboundedSender<Event>,
     rx: mpsc::UnboundedReceiver<Event>,
+    /// Fields rather than constants because they belong in the unit file: a database
+    /// needs longer to flush than an echo server. Per-service once the file carries them.
+    stop_timeout: Duration,
+    kill_grace: Duration,
 }
 
 impl Supervisor {
@@ -52,6 +68,8 @@ impl Supervisor {
             pids: HashMap::new(),
             tx,
             rx,
+            stop_timeout: STOP_TIMEOUT,
+            kill_grace: KILL_GRACE,
         }
     }
 
@@ -185,6 +203,92 @@ impl Supervisor {
         Ok(())
     }
 
+    /// Stops every running service, in reverse of the order they were started in.
+    pub async fn stop_all(&mut self) {
+        let mut order: Vec<ServiceName> = self.execs.keys().cloned().collect();
+        order.sort();
+        order.reverse();
+
+        for name in order {
+            if let Err(e) = self.stop_one(&name).await {
+                println!("{name:<16} !! {e:#}");
+            }
+        }
+    }
+
+    pub async fn stop_one(&mut self, name: &ServiceName) -> anyhow::Result<()> {
+        let Some(status) = self.status(name) else {
+            bail!("unknown service {name}");
+        };
+        if !matches!(status.state, State::Started | State::Inactive) {
+            return Ok(());
+        }
+
+        let stop = self.execs.get(name).and_then(|spec| spec.stop.clone());
+        self.set(name, State::Stopping);
+
+        // A stop command is the only way to undo a oneshot, which has no process
+        // left to signal — and the graceful path for daemons that offer one.
+        if let Some(argv) = stop {
+            let (program, args) = argv.split();
+            match Command::new(program).args(args).status().await {
+                Ok(exit) if !exit.success() => println!("{name:<16} !! stop command {exit}"),
+                Err(e) => println!("{name:<16} !! stop command failed: {e}"),
+                _ => {}
+            }
+        }
+
+        if !self.pids.contains_key(name) {
+            // Either a oneshot, or the stop command already brought it down.
+            self.set(name, State::Stopped);
+            return Ok(());
+        }
+
+        self.signal(name, Signal::TERM);
+        if self.await_exit(name, self.stop_timeout).await {
+            return Ok(());
+        }
+
+        let waited = self.stop_timeout;
+        println!("{name:<16} !! did not stop in {waited:?}, sending SIGKILL");
+        self.signal(name, Signal::KILL);
+        if self.await_exit(name, self.kill_grace).await {
+            return Ok(());
+        }
+
+        bail!("still alive after SIGKILL")
+    }
+
+    /// Applies events until this service's process is gone. `false` on timeout.
+    ///
+    /// Events for other services are applied on the way through rather than
+    /// dropped: this is the same queue `watch` reads.
+    async fn await_exit(&mut self, name: &ServiceName, within: Duration) -> bool {
+        let deadline = tokio::time::Instant::now() + within;
+
+        while self.pids.contains_key(name) {
+            match tokio::time::timeout_at(deadline, self.rx.recv()).await {
+                Ok(Some(event)) => self.on_event(event),
+                // Channel closed, or the deadline passed.
+                _ => return false,
+            }
+        }
+        true
+    }
+
+    fn signal(&self, name: &ServiceName, signal: Signal) {
+        let Some(&pid) = self.pids.get(name) else {
+            return;
+        };
+        let Some(pid) = Pid::from_raw(pid as i32) else {
+            return;
+        };
+
+        if let Err(e) = kill_process(pid, signal) {
+            println!("{name:<16} !! could not send {signal:?}: {e}");
+        }
+    }
+
     /// Runs until interrupted, reacting to services that exit on their own.
     pub async fn watch(&mut self) {
         loop {
@@ -198,7 +302,17 @@ impl Supervisor {
         }
     }
 
+    /// Shortens the stop deadlines so tests do not wait out the real ones.
+    #[cfg(test)]
+    fn set_timeouts(&mut self, stop_timeout: Duration, kill_grace: Duration) {
+        self.stop_timeout = stop_timeout;
+        self.kill_grace = kill_grace;
+    }
+
     /// Waits for one process event and applies it. `false` if none arrived in time.
+    ///
+    /// Only tests need this: `watch` owns the queue in a running supervisor.
+    #[cfg(test)]
     async fn handle_next_event(&mut self, within: Duration) -> bool {
         match tokio::time::timeout(within, self.rx.recv()).await {
             Ok(Some(event)) => {
@@ -435,5 +549,70 @@ mod tests {
             !sup.pids.contains_key(&name),
             "a oneshot leaves nothing running"
         );
+    }
+
+    #[tokio::test]
+    async fn stopping_a_running_service_is_not_a_crash() {
+        let (mut sup, name) = sup_of("daemon", simple(&["/bin/sleep", "3600"]));
+        sup.start_one(&name).await.unwrap();
+
+        sup.stop_one(&name).await.unwrap();
+
+        let status = sup.status(&name).unwrap();
+        assert_eq!(status.state, State::Stopped);
+        assert!(
+            !status.flags.contains(Flags::CRASHED),
+            "we asked for this exit"
+        );
+        assert!(!sup.pids.contains_key(&name));
+    }
+
+    #[tokio::test]
+    async fn a_service_ignoring_sigterm_is_killed() {
+        // `trap "" TERM` makes the shell ignore SIGTERM; the loop keeps it from
+        // exec'ing away the trap, so only SIGKILL can end it.
+        let (mut sup, name) = sup_of(
+            "stubborn",
+            simple(&["/bin/sh", "-c", "trap '' TERM; while :; do sleep 1; done"]),
+        );
+        sup.set_timeouts(Duration::from_millis(200), Duration::from_secs(5));
+        sup.start_one(&name).await.unwrap();
+
+        sup.stop_one(&name).await.unwrap();
+
+        assert_eq!(sup.status(&name).unwrap().state, State::Stopped);
+        assert!(!sup.pids.contains_key(&name));
+    }
+
+    #[tokio::test]
+    async fn a_oneshot_is_undone_by_its_stop_command() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("undone");
+
+        let mut exec = oneshot(&["/bin/sh", "-c", "exit 0"]);
+        exec.stop = Some(
+            Argv::try_from(vec![
+                "/bin/sh".to_string(),
+                "-c".to_string(),
+                format!("touch {}", marker.display()),
+            ])
+            .unwrap(),
+        );
+        let (mut sup, name) = sup_of("work", exec);
+
+        sup.start_one(&name).await.unwrap();
+        sup.stop_one(&name).await.unwrap();
+
+        assert_eq!(sup.status(&name).unwrap().state, State::Stopped);
+        assert!(marker.exists(), "the stop command should have run");
+    }
+
+    #[tokio::test]
+    async fn stopping_a_stopped_service_does_nothing() {
+        let (mut sup, name) = sup_of("idle", simple(&["/bin/sleep", "3600"]));
+
+        sup.stop_one(&name).await.unwrap();
+
+        assert_eq!(sup.status(&name).unwrap().state, State::Stopped);
     }
 }
