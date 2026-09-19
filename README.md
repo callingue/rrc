@@ -41,9 +41,13 @@ start = ["/bin/echo", "hello from greet"]
 ## Development
 
 ```bash
-./scripts/setup-hooks.sh   # fmt on commit; clippy and tests on push
-cargo test --workspace
+just hooks    # fmt on commit; clippy, unused deps and tests on push
+just test
+just ci       # everything CI checks
 ```
+
+`just --list` shows the rest. The recipes are plain cargo commands, so
+[just](https://github.com/casey/just) is a convenience, not a requirement.
 
 `rrc-core` holds the domain types and the state machine, `rrc-cfg` parses unit
 files, `rrc-sup` runs the services.
