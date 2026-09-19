@@ -18,6 +18,21 @@ if ! cargo clippy --workspace --all-targets -- -D warnings; then
     exit 1
 fi
 
+# Skipped rather than enforced when the tool is missing: CI is the hard gate,
+# and a hook that blocks a push over an uninstalled helper is just in the way.
+if command -v cargo-machete >/dev/null 2>&1; then
+    echo "pre-push: cargo machete"
+    if ! cargo machete; then
+        echo >&2
+        echo "Unused dependencies found. Remove them, or list them under" >&2
+        echo "[package.metadata.cargo-machete] if the detection is wrong." >&2
+        exit 1
+    fi
+else
+    echo "pre-push: cargo-machete not installed, skipping" >&2
+    echo "           (cargo install cargo-machete)" >&2
+fi
+
 echo "pre-push: cargo test --workspace"
 if ! cargo test --workspace; then
     echo >&2
