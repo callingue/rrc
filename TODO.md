@@ -16,3 +16,12 @@
 6. Add cargo-deny to CI: licenses of dependencies, duplicate versions, and RUSTSEC
    advisories in one gate. Every entry in the ignore list needs a written reason
    explaining why the advisory is not reachable from this code.
+7. Write a proper logger for the supervisor and retire the ad-hoc println! calls,
+   keeping the three markers they already use: `->` a state change, `..` a reported
+   event, `!!` something went wrong, with the service name padded into a column.
+   Probably a custom formatter over tracing rather than hand-rolled printing —
+   levels, per-service spans and RRC_LOG filtering come with it.
+   Two decisions to make while doing it: timestamps counted from start rather than
+   wall clock (during early boot the RTC may not be set yet), and keeping the
+   services' own stdout/stderr out of this stream — those are raw bytes bound for a
+   file or the journal, not lines to format.
