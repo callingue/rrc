@@ -28,13 +28,13 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Install cargo-machete
+      - name: Install cargo-machete & nextest
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-machete
+          tool: cargo-machete,cargo-nextest
 
       - name: Unused dependencies
         run: cargo machete
 
       - name: Test
-        run: cargo test --workspace
+        run: cargo nextest run --workspace

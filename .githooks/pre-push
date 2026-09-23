@@ -33,8 +33,17 @@ else
     echo "           (cargo install cargo-machete)" >&2
 fi
 
-echo "pre-push: cargo test --workspace"
-if ! cargo test --workspace; then
+# Tests are a hard gate, unlike the helper above, so a missing runner stops
+# the push — but say how to get it instead of leaving a bare cargo error.
+if ! command -v cargo-nextest >/dev/null 2>&1; then
+    echo "pre-push: cargo-nextest not installed" >&2
+    echo "           install it with 'just setup'" >&2
+    echo "           (or: cargo install --locked cargo-nextest)" >&2
+    exit 1
+fi
+
+echo "pre-push: cargo nextest run --workspace"
+if ! cargo nextest run --workspace; then
     echo >&2
     echo "Tests failed. Fix them before pushing." >&2
     exit 1

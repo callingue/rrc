@@ -13,6 +13,6 @@ chmod +x .githooks/*
 
 echo "Git hooks enabled (core.hooksPath -> .githooks)."
 echo "  pre-commit: cargo fmt --all --check"
-echo "  pre-push:   cargo clippy -D warnings, then cargo test --workspace"
+echo "  pre-push:   cargo clippy -D warnings, then cargo nextest run --workspace"
 echo
 echo "Bypass once with --no-verify. Disable with: git config --unset core.hooksPath"
