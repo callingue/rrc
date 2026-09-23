@@ -24,11 +24,11 @@ const READINESS_PROBE: Duration = Duration::from_millis(100);
 /// Together with `KILL_GRACE` this belongs in the unit file, next to the command
 /// it applies to — a database needs longer to flush than an echo server. Constants
 /// for now so that stopping works at all.
-const STOP_TIMEOUT: Duration = Duration::from_secs(10);
+const DEFAULT_STOP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How long to wait for a process to disappear after `SIGKILL`, which it cannot
 /// catch. Only a process stuck in the kernel (uninterruptible I/O) outlives this.
-const KILL_GRACE: Duration = Duration::from_secs(2);
+const DEFAULT_KILL_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Something that happened to a service's process, reported by its watcher task.
 #[derive(Debug)]
@@ -48,10 +48,6 @@ pub struct Supervisor {
     /// Cloned for each watcher task; kept here so new ones can be spawned later.
     tx: mpsc::UnboundedSender<Event>,
     rx: mpsc::UnboundedReceiver<Event>,
-    /// Fields rather than constants because they belong in the unit file: a database
-    /// needs longer to flush than an echo server. Per-service once the file carries them.
-    stop_timeout: Duration,
-    kill_grace: Duration,
 }
 
 impl Supervisor {
@@ -68,8 +64,6 @@ impl Supervisor {
             pids: HashMap::new(),
             tx,
             rx,
-            stop_timeout: STOP_TIMEOUT,
-            kill_grace: KILL_GRACE,
         }
     }
 
@@ -244,15 +238,43 @@ impl Supervisor {
             return Ok(());
         }
 
+        let stop_timeout = if self
+            .execs
+            .get(name)
+            .and_then(|spec| spec.stop_timeout)
+            .is_some()
+        {
+            self.execs
+                .get(name)
+                .and_then(|spec| spec.stop_timeout)
+                .unwrap()
+        } else {
+            DEFAULT_STOP_TIMEOUT
+        };
+
         self.signal(name, Signal::TERM);
-        if self.await_exit(name, self.stop_timeout).await {
+        if self.await_exit(name, stop_timeout).await {
             return Ok(());
         }
 
-        let waited = self.stop_timeout;
+        let waited = stop_timeout;
+        let kill_timeout = if self
+            .execs
+            .get(name)
+            .and_then(|spec| spec.kill_timeout)
+            .is_some()
+        {
+            self.execs
+                .get(name)
+                .and_then(|spec| spec.kill_timeout)
+                .unwrap()
+        } else {
+            DEFAULT_KILL_TIMEOUT
+        };
+
         println!("{name:<16} !! did not stop in {waited:?}, sending SIGKILL");
         self.signal(name, Signal::KILL);
-        if self.await_exit(name, self.kill_grace).await {
+        if self.await_exit(name, kill_timeout).await {
             return Ok(());
         }
 
@@ -300,13 +322,6 @@ impl Supervisor {
                 Some(event) = self.rx.recv() => self.on_event(event),
             }
         }
-    }
-
-    /// Shortens the stop deadlines so tests do not wait out the real ones.
-    #[cfg(test)]
-    fn set_timeouts(&mut self, stop_timeout: Duration, kill_grace: Duration) {
-        self.stop_timeout = stop_timeout;
-        self.kill_grace = kill_grace;
     }
 
     /// Waits for one process event and applies it. `false` if none arrived in time.
@@ -390,6 +405,8 @@ mod tests {
             start: Argv::try_from(argv).unwrap(),
             stop: None,
             reload: None,
+            stop_timeout: Some(DEFAULT_STOP_TIMEOUT),
+            kill_timeout: Some(DEFAULT_KILL_TIMEOUT),
         }
     }
 
@@ -575,7 +592,6 @@ mod tests {
             "stubborn",
             simple(&["/bin/sh", "-c", "trap '' TERM; while :; do sleep 1; done"]),
         );
-        sup.set_timeouts(Duration::from_millis(200), Duration::from_secs(5));
         sup.start_one(&name).await.unwrap();
 
         sup.stop_one(&name).await.unwrap();

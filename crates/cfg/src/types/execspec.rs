@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -10,6 +11,9 @@ pub struct ExecSpec {
     pub start: Argv,
     pub stop: Option<Argv>,
     pub reload: Option<Argv>,
+
+    pub stop_timeout: Option<Duration>,
+    pub kill_timeout: Option<Duration>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

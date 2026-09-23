@@ -71,7 +71,7 @@ mod tests {
     fn unit_toml(name: &str) -> String {
         format!(
             "[service]\nname = \"{name}\"\ndesc = \"\"\nprovides = []\ndeps = []\n\
-             runlevels = []\n\n[exec]\nkind = \"oneshot\"\nstart = [\"/bin/echo\"]\n"
+            runlevels = []\n\n[exec]\nkind = \"oneshot\"\nstart = [\"/bin/echo\"]\n"
         )
     }
 
