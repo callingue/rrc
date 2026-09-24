@@ -20,7 +20,7 @@ use tokio::{process::Command, sync::mpsc};
 const READINESS_PROBE: Duration = Duration::from_millis(100);
 
 /// How long a service gets to exit before it is killed outright.
-const DEFAULT_STOP_TIMEOUT: Duration = Duration::from_secs(10);
+const DEFAULT_STOP_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// Something that happened to a service's process, reported by its watcher task.
 #[derive(Debug)]
