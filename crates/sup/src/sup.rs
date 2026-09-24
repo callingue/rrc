@@ -19,16 +19,8 @@ use tokio::{process::Command, sync::mpsc};
 /// looks like. Anything slower to fail still reports as started.
 const READINESS_PROBE: Duration = Duration::from_millis(100);
 
-/// How long a service gets to exit after `SIGTERM` before it is killed outright.
-///
-/// Together with `KILL_GRACE` this belongs in the unit file, next to the command
-/// it applies to — a database needs longer to flush than an echo server. Constants
-/// for now so that stopping works at all.
+/// How long a service gets to exit before it is killed outright.
 const DEFAULT_STOP_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// How long to wait for a process to disappear after `SIGKILL`, which it cannot
-/// catch. Only a process stuck in the kernel (uninterruptible I/O) outlives this.
-const DEFAULT_KILL_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Something that happened to a service's process, reported by its watcher task.
 #[derive(Debug)]
@@ -214,71 +206,65 @@ impl Supervisor {
         let Some(status) = self.status(name) else {
             bail!("unknown service {name}");
         };
-        if !matches!(status.state, State::Started | State::Inactive) {
+
+        if !matches!(
+            status.state,
+            State::Started | State::Inactive | State::Stopping
+        ) {
             return Ok(());
         }
 
-        let stop = self.execs.get(name).and_then(|spec| spec.stop.clone());
-        self.set(name, State::Stopping);
-
-        // A stop command is the only way to undo a oneshot, which has no process
-        // left to signal — and the graceful path for daemons that offer one.
-        if let Some(argv) = stop {
-            let (program, args) = argv.split();
-            match Command::new(program).args(args).status().await {
-                Ok(exit) if !exit.success() => println!("{name:<16} !! stop command {exit}"),
-                Err(e) => println!("{name:<16} !! stop command failed: {e}"),
-                _ => {}
-            }
-        }
-
-        if !self.pids.contains_key(name) {
-            // Either a oneshot, or the stop command already brought it down.
-            self.set(name, State::Stopped);
-            return Ok(());
-        }
-
-        let stop_timeout = if self
+        let stop_command = self.execs.get(name).and_then(|spec| spec.stop.clone());
+        let stop_timeout = self
             .execs
             .get(name)
             .and_then(|spec| spec.stop_timeout)
-            .is_some()
-        {
-            self.execs
-                .get(name)
-                .and_then(|spec| spec.stop_timeout)
-                .unwrap()
-        } else {
-            DEFAULT_STOP_TIMEOUT
-        };
+            .unwrap_or(DEFAULT_STOP_TIMEOUT);
 
-        self.signal(name, Signal::TERM);
-        if self.await_exit(name, stop_timeout).await {
+        if status.state != State::Stopping {
+            self.set(name, State::Stopping);
+        }
+
+        let deadline = tokio::time::Instant::now() + stop_timeout;
+
+        match stop_command {
+            Some(argv) => {
+                let (program, args) = argv.split();
+                let program = program.clone();
+                let args = args.to_vec();
+
+                let mut command = Command::new(&program);
+                command.args(&args).kill_on_drop(true);
+
+                match tokio::time::timeout(stop_timeout, command.status()).await {
+                    Ok(Ok(exit)) if !exit.success() => {
+                        println!("{name:<16} !! stop command {exit}")
+                    }
+                    Ok(Err(e)) => println!("{name:<16} !! stop command failed: {e}"),
+                    Err(_) => bail!("stop command did not finish in {stop_timeout:?}"),
+                    Ok(Ok(_)) => {}
+                }
+            }
+            None => self.signal(name, Signal::TERM),
+        }
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if self.await_exit(name, remaining).await {
+            self.mark_stopped(name);
             return Ok(());
         }
 
-        let waited = stop_timeout;
-        let kill_timeout = if self
-            .execs
-            .get(name)
-            .and_then(|spec| spec.kill_timeout)
-            .is_some()
-        {
-            self.execs
-                .get(name)
-                .and_then(|spec| spec.kill_timeout)
-                .unwrap()
-        } else {
-            DEFAULT_KILL_TIMEOUT
-        };
-
-        println!("{name:<16} !! did not stop in {waited:?}, sending SIGKILL");
+        println!("{name:<16} !! still running after {stop_timeout:?}, sending SIGKILL");
         self.signal(name, Signal::KILL);
-        if self.await_exit(name, kill_timeout).await {
-            return Ok(());
-        }
+        self.mark_stopped(name);
 
-        bail!("still alive after SIGKILL")
+        Ok(())
+    }
+
+    /// Records the stop unless an exit event already did.
+    fn mark_stopped(&mut self, name: &ServiceName) {
+        if self.status(name).map(|status| status.state) != Some(State::Stopped) {
+            self.set(name, State::Stopped);
+        }
     }
 
     /// Applies events until this service's process is gone. `false` on timeout.
@@ -291,7 +277,6 @@ impl Supervisor {
         while self.pids.contains_key(name) {
             match tokio::time::timeout_at(deadline, self.rx.recv()).await {
                 Ok(Some(event)) => self.on_event(event),
-                // Channel closed, or the deadline passed.
                 _ => return false,
             }
         }
@@ -342,11 +327,13 @@ impl Supervisor {
         let Event::Exited { name, status } = event;
         self.pids.remove(&name);
 
-        // Anything we did not ask for is a crash. `Stopped` alone cannot say that,
-        // which is what the CRASHED flag is for.
-        let expected = self.statuses.get(&name).map(|s| s.state) == Some(State::Stopping);
+        // Anything we did not ask for is a crash.
+        let expected = matches!(
+            self.statuses.get(&name).map(|s| s.state),
+            Some(State::Stopping | State::Stopped)
+        );
         println!("{name:<16} .. exited with {status}");
-        self.set(&name, State::Stopped);
+        self.mark_stopped(&name);
 
         if !expected && let Some(status) = self.statuses.get_mut(&name) {
             status.flags.insert(Flags::CRASHED);
@@ -406,7 +393,6 @@ mod tests {
             stop: None,
             reload: None,
             stop_timeout: Some(DEFAULT_STOP_TIMEOUT),
-            kill_timeout: Some(DEFAULT_KILL_TIMEOUT),
         }
     }
 
@@ -588,16 +574,19 @@ mod tests {
     async fn a_service_ignoring_sigterm_is_killed() {
         // `trap "" TERM` makes the shell ignore SIGTERM; the loop keeps it from
         // exec'ing away the trap, so only SIGKILL can end it.
-        let (mut sup, name) = sup_of(
-            "stubborn",
-            simple(&["/bin/sh", "-c", "trap '' TERM; while :; do sleep 1; done"]),
-        );
+        let mut exec = simple(&["/bin/sh", "-c", "trap '' TERM; while :; do sleep 1; done"]);
+        // Short, so the test does not wait out the real default.
+        exec.stop_timeout = Some(Duration::from_millis(200));
+        let (mut sup, name) = sup_of("stubborn", exec);
         sup.start_one(&name).await.unwrap();
 
         sup.stop_one(&name).await.unwrap();
-
         assert_eq!(sup.status(&name).unwrap().state, State::Stopped);
+
+        // The pid clears once the exit is reported; SIGKILL is not awaited.
+        assert!(sup.handle_next_event(Duration::from_secs(5)).await);
         assert!(!sup.pids.contains_key(&name));
+        assert!(!sup.status(&name).unwrap().flags.contains(Flags::CRASHED));
     }
 
     #[tokio::test]
@@ -621,6 +610,23 @@ mod tests {
 
         assert_eq!(sup.status(&name).unwrap().state, State::Stopped);
         assert!(marker.exists(), "the stop command should have run");
+    }
+
+    #[tokio::test]
+    async fn a_hanging_stop_command_fails_and_stays_retryable() {
+        let mut exec = simple(&["/bin/sleep", "3600"]);
+        exec.stop =
+            Some(Argv::try_from(vec!["/bin/sleep".to_string(), "3600".to_string()]).unwrap());
+        exec.stop_timeout = Some(Duration::from_millis(200));
+        let (mut sup, name) = sup_of("wedged", exec);
+        sup.start_one(&name).await.unwrap();
+
+        let err = sup.stop_one(&name).await.unwrap_err().to_string();
+
+        assert!(err.contains("did not finish"), "{err}");
+        // Still Stopping, so `stop` can be issued again; no signal was sent.
+        assert_eq!(sup.status(&name).unwrap().state, State::Stopping);
+        assert!(sup.pids.contains_key(&name));
     }
 
     #[tokio::test]

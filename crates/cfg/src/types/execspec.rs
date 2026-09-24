@@ -13,7 +13,6 @@ pub struct ExecSpec {
     pub reload: Option<Argv>,
 
     pub stop_timeout: Option<Duration>,
-    pub kill_timeout: Option<Duration>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
