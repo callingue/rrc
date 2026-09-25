@@ -570,11 +570,13 @@ mod tests {
         assert!(!sup.pids.contains_key(&name));
     }
 
+    // FIX LEAKED TEST
     #[tokio::test]
     async fn a_service_ignoring_sigterm_is_killed() {
         // `trap "" TERM` makes the shell ignore SIGTERM; the loop keeps it from
-        // exec'ing away the trap, so only SIGKILL can end it.
-        let mut exec = simple(&["/bin/sh", "-c", "trap '' TERM; while :; do sleep 1; done"]);
+        // exec'ing away the trap, so only SIGKILL can end it. The loop body is a
+        // builtin: a `sleep` here would outlive the killed shell and leak.
+        let mut exec = simple(&["/bin/sh", "-c", "trap '' TERM; while :; do :; done"]);
         // Short, so the test does not wait out the real default.
         exec.stop_timeout = Some(Duration::from_millis(200));
         let (mut sup, name) = sup_of("stubborn", exec);
