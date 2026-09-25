@@ -25,3 +25,12 @@
    wall clock (during early boot the RTC may not be set yet), and keeping the
    services' own stdout/stderr out of this stream — those are raw bytes bound for a
    file or the journal, not lines to format.
+8. Kill a service's whole process tree, not just the pid we spawned. `signal()` sends
+   to one process, so anything the service forked survives the stop: a shell loop
+   leaves its `sleep` behind, a daemon leaves its workers. Visible today in
+   `a_service_ignoring_sigterm_is_killed`, which nextest reports as leaky.
+   The real fix is cgroup v2: put each service in its own cgroup and write "1" to
+   `cgroup.kill`, which the kernel documents as handling concurrent forks and being
+   protected against migrations. A cheaper stopgap is a per-service process group
+   (`Command::process_group(0)` at spawn, `kill_process_group` at stop) — it covers
+   the common cases but a process can leave the group with setsid/setpgid.
