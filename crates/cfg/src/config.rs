@@ -9,27 +9,21 @@ use rrc_core::service::ServiceName;
 
 use crate::types::unit::Unit;
 
-pub fn load_units(dir: &Path) -> anyhow::Result<Vec<Unit>> {
+pub fn load_units(dir: &Path) -> anyhow::Result<HashMap<ServiceName, Unit>> {
     let service_files = find_service_files(dir)?;
-
-    let mut units = Vec::with_capacity(service_files.len());
-    let mut seen: HashMap<ServiceName, PathBuf> = HashMap::new();
+    let mut units: HashMap<ServiceName, Unit> = HashMap::with_capacity(service_files.len());
 
     for service_file in &service_files {
-        let parsed_unit = parse_service_file(service_file)?;
+        let unit = parse_service_file(service_file)?;
+        let name = unit.service.name.clone();
 
-        // Two files claiming the same name would silently collapse into one entry
-        // once units get keyed by name. Reject it here, while both paths are known.
-        if let Some(first) = seen.insert(parsed_unit.service.name.clone(), service_file.clone()) {
+        if let Some(first) = units.insert(name.clone(), unit) {
             bail!(
-                "duplicate service name `{}`: {} and {}",
-                parsed_unit.service.name,
-                first.display(),
+                "duplicate service name `{name}`: {} and {}",
+                first.path.display(),
                 service_file.display()
             );
         }
-
-        units.push(parsed_unit);
     }
 
     Ok(units)
@@ -59,8 +53,10 @@ fn find_service_files(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
 fn parse_service_file(file_path: &Path) -> anyhow::Result<Unit> {
     let content = fs::read_to_string(file_path)
         .with_context(|| format!("reading {}", file_path.display()))?;
-    let unit =
+    let mut unit: Unit =
         toml::from_str(&content).with_context(|| format!("parsing {}", file_path.display()))?;
+    unit.path = file_path.to_path_buf();
+
     Ok(unit)
 }
 

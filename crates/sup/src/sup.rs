@@ -65,10 +65,9 @@ impl Supervisor {
     /// nothing consumes it until the dependency registry exists, and keeping a copy
     /// that no one reads would just be a second source of truth.
     pub fn from_dir(dir: &Path) -> anyhow::Result<Self> {
-        let units = load_units(dir)?;
-        let execs = units
+        let execs = load_units(dir)?
             .into_iter()
-            .map(|unit| (unit.service.name, unit.exec))
+            .map(|(name, unit)| (name, unit.exec))
             .collect();
 
         Ok(Self::new(execs))
