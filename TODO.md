@@ -34,3 +34,4 @@
    protected against migrations. A cheaper stopgap is a per-service process group
    (`Command::process_group(0)` at spawn, `kill_process_group` at stop) — it covers
    the common cases but a process can leave the group with setsid/setpgid.
+9. Implement command 'zap' that makes rrc ‘forget’ that a service is started.
