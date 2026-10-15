@@ -19,7 +19,7 @@ ci: fmt-check lint machete test
 
 # Reformat the workspace.
 fmt:
-    cargo fmt --all
+    cargo fmt      --all
 
 # Fail if anything is unformatted.
 fmt-check:
